@@ -9,19 +9,22 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+// Flexible apiRequest: apiRequest(url) for GET, or apiRequest(url, { method, body }) for mutations
 export async function apiRequest(
-  method: string,
   url: string,
-  data?: unknown | undefined,
-): Promise<Response> {
+  options?: RequestInit,
+): Promise<any> {
   const res = await fetch(`${API_BASE}${url}`, {
-    method,
-    headers: data ? { "Content-Type": "application/json" } : {},
-    body: data ? JSON.stringify(data) : undefined,
+    headers: options?.body ? { "Content-Type": "application/json" } : {},
+    ...options,
   });
 
   await throwIfResNotOk(res);
-  return res;
+
+  // 204 No Content
+  if (res.status === 204) return null;
+
+  return res.json();
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";
@@ -30,7 +33,8 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(`${API_BASE}${queryKey.join("/")}`);
+    const url = Array.isArray(queryKey) ? queryKey.join("/") : queryKey;
+    const res = await fetch(`${API_BASE}${url}`);
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;
