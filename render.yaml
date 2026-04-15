@@ -3,8 +3,10 @@ services:
     name: jdm-contracting-crm
     runtime: node
     buildCommand: npm install && npm run build
-    startCommand: NODE_ENV=production node dist/index.cjs
+    startCommand: node dist/index.cjs
     plan: free
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PORT
+        value: 10000
