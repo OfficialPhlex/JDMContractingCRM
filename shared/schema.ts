@@ -91,3 +91,36 @@ export const insertPaymentSchema = createInsertSchema(payments).omit({
 });
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 export type Payment = typeof payments.$inferSelect;
+
+// Document types
+export const DOCUMENT_TYPES = ["quote", "receipt", "contract", "invoice", "photo", "other"] as const;
+export type DocumentType = typeof DOCUMENT_TYPES[number];
+
+export const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
+  quote: "Quote",
+  receipt: "Receipt",
+  contract: "Contract",
+  invoice: "Invoice",
+  photo: "Photo",
+  other: "Other",
+};
+
+// Documents table — files stored as base64 blobs in SQLite
+export const documents = sqliteTable("documents", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  contactId: integer("contact_id").notNull(),
+  type: text("type").notNull().default("other"),
+  filename: text("filename").notNull(),
+  mimeType: text("mime_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  data: text("data").notNull(), // base64-encoded file contents
+  notes: text("notes"),
+  createdAt: text("created_at").notNull().default(new Date().toISOString()),
+});
+
+export const insertDocumentSchema = createInsertSchema(documents).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertDocument = z.infer<typeof insertDocumentSchema>;
+export type Document = typeof documents.$inferSelect;

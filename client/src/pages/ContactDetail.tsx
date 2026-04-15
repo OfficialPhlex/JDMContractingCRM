@@ -31,15 +31,22 @@ import {
   Calendar,
   CheckCircle2,
   Clock,
+  Paperclip,
+  Download,
+  FileText,
+  Image,
+  File,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import type { Contact, Interaction, Payment } from "@shared/schema";
+import type { Contact, Interaction, Payment, Document } from "@shared/schema";
 import {
   PIPELINE_STAGE_LABELS,
   INTERACTION_TYPES,
+  DOCUMENT_TYPE_LABELS,
   type PipelineStage,
   type InteractionType,
   type ContactType,
+  type DocumentType,
 } from "@shared/schema";
 import {
   formatCurrency,
@@ -52,6 +59,7 @@ import {
 import { ContactFormDialog } from "@/components/ContactFormDialog";
 import { InteractionFormDialog } from "@/components/InteractionFormDialog";
 import { PaymentFormDialog } from "@/components/PaymentFormDialog";
+import { DocumentUploadDialog } from "@/components/DocumentUploadDialog";
 
 const CONTACT_TYPE_LABELS: Record<ContactType, string> = {
   client: "Client",
@@ -70,8 +78,10 @@ export default function ContactDetail() {
   const [showEdit, setShowEdit] = useState(false);
   const [showInteraction, setShowInteraction] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
+  const [showUpload, setShowUpload] = useState(false);
   const [deleteInteractionId, setDeleteInteractionId] = useState<number | null>(null);
   const [deletePaymentId, setDeletePaymentId] = useState<number | null>(null);
+  const [deleteDocumentId, setDeleteDocumentId] = useState<number | null>(null);
 
   const { data: contact, isLoading } = useQuery<Contact>({
     queryKey: ["/api/contacts", contactId],
@@ -86,6 +96,11 @@ export default function ContactDetail() {
   const { data: payments } = useQuery<Payment[]>({
     queryKey: ["/api/contacts", contactId, "payments"],
     queryFn: () => apiRequest(`/api/contacts/${contactId}/payments`),
+  });
+
+  const { data: documents } = useQuery<Omit<Document, 'data'>[]>({
+    queryKey: ["/api/contacts", contactId, "documents"],
+    queryFn: () => apiRequest(`/api/contacts/${contactId}/documents`),
   });
 
   const deleteInteraction = useMutation({
@@ -105,6 +120,15 @@ export default function ContactDetail() {
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       toast({ title: "Payment deleted" });
       setDeletePaymentId(null);
+    },
+  });
+
+  const deleteDocument = useMutation({
+    mutationFn: (did: number) => apiRequest(`/api/documents/${did}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId, "documents"] });
+      toast({ title: "Document deleted" });
+      setDeleteDocumentId(null);
     },
   });
 
@@ -135,6 +159,18 @@ export default function ContactDetail() {
     site_visit: "Site Visit",
     note: "Note",
   };
+
+  function getDocIcon(mimeType: string) {
+    if (mimeType.startsWith("image/")) return <Image className="w-4 h-4" />;
+    if (mimeType === "application/pdf") return <FileText className="w-4 h-4" />;
+    return <File className="w-4 h-4" />;
+  }
+
+  function formatBytes(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
 
   return (
     <div className="p-6 space-y-6 max-w-4xl">
@@ -463,6 +499,96 @@ export default function ContactDetail() {
         </CardContent>
       </Card>
 
+      {/* Documents section */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2">
+              <Paperclip className="w-4 h-4 text-primary" />
+              Documents
+            </CardTitle>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-2 h-7 text-xs"
+              onClick={() => setShowUpload(true)}
+              data-testid="button-upload-document"
+            >
+              <Plus className="w-3 h-3" />
+              Upload
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {!documents || documents.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+              <Paperclip className="w-8 h-8 mb-2 text-muted-foreground/40" />
+              <p className="text-sm font-medium">No documents yet</p>
+              <p className="text-xs mt-0.5">Upload quotes, receipts, contracts, and more.</p>
+              <Button
+                className="mt-4 gap-2"
+                size="sm"
+                variant="outline"
+                onClick={() => setShowUpload(true)}
+                data-testid="button-upload-first-document"
+              >
+                <Plus className="w-3 h-3" />
+                Upload Document
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {documents.map((doc) => (
+                <div
+                  key={doc.id}
+                  className="flex items-center gap-3 py-2 border-b border-border last:border-0"
+                  data-testid={`document-${doc.id}`}
+                >
+                  <div className="w-8 h-8 rounded bg-primary/10 flex items-center justify-center text-primary flex-shrink-0">
+                    {getDocIcon(doc.mimeType)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{doc.filename}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge variant="outline" className="text-xs px-1.5 py-0 h-4">
+                        {DOCUMENT_TYPE_LABELS[doc.type as DocumentType]}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">{formatBytes(doc.sizeBytes)}</span>
+                      <span className="text-xs text-muted-foreground">{formatDate(doc.createdAt)}</span>
+                    </div>
+                    {doc.notes && (
+                      <p className="text-xs text-muted-foreground mt-0.5 truncate">{doc.notes}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 text-muted-foreground hover:text-primary"
+                      onClick={() => window.open(`/api/documents/${doc.id}/download`, "_blank")}
+                      title="Download"
+                      data-testid={`button-download-document-${doc.id}`}
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                      onClick={() => setDeleteDocumentId(doc.id)}
+                      title="Delete"
+                      data-testid={`button-delete-document-${doc.id}`}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Dialogs */}
       <ContactFormDialog
         open={showEdit}
@@ -482,6 +608,31 @@ export default function ContactDetail() {
         contactId={contactId}
         currentContractValue={contact.totalContractValue ?? 0}
       />
+
+      <DocumentUploadDialog
+        open={showUpload}
+        onClose={() => setShowUpload(false)}
+        contactId={contactId}
+      />
+
+      {/* Delete document confirm */}
+      <AlertDialog open={deleteDocumentId !== null} onOpenChange={() => setDeleteDocumentId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this document?</AlertDialogTitle>
+            <AlertDialogDescription>This cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteDocumentId && deleteDocument.mutate(deleteDocumentId)}
+              className="bg-destructive text-destructive-foreground"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete interaction confirm */}
       <AlertDialog open={deleteInteractionId !== null} onOpenChange={() => setDeleteInteractionId(null)}>

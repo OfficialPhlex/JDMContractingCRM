@@ -4,6 +4,29 @@ import { storage } from "./storage";
 import { insertContactSchema, insertInteractionSchema, insertPaymentSchema } from "@shared/schema";
 import { z } from "zod";
 
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+const ALLOWED_MIME_TYPES = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "image/heic",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/plain",
+];
+
+const uploadDocumentSchema = z.object({
+  type: z.string().default("other"),
+  filename: z.string().min(1),
+  mimeType: z.string().min(1),
+  sizeBytes: z.number().int().positive(),
+  data: z.string().min(1), // base64
+  notes: z.string().optional(),
+});
+
 export function registerRoutes(httpServer: Server, app: Express) {
   // --- Dashboard ---
   app.get("/api/dashboard", (_req, res) => {
@@ -135,6 +158,63 @@ export function registerRoutes(httpServer: Server, app: Express) {
     try {
       const id = parseInt(req.params.id);
       storage.deletePayment(id);
+      res.status(204).send();
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // --- Documents ---
+  app.get("/api/contacts/:id/documents", (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      res.json(storage.getDocumentsByContact(id));
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post("/api/contacts/:id/documents", (req, res) => {
+    try {
+      const contactId = parseInt(req.params.id);
+      const body = uploadDocumentSchema.parse(req.body);
+
+      if (!ALLOWED_MIME_TYPES.includes(body.mimeType)) {
+        return res.status(400).json({ error: "File type not allowed" });
+      }
+      if (body.sizeBytes > MAX_FILE_SIZE_BYTES) {
+        return res.status(400).json({ error: "File too large (max 10 MB)" });
+      }
+
+      const doc = storage.createDocument({ ...body, contactId });
+      res.status(201).json(doc);
+    } catch (e: any) {
+      if (e instanceof z.ZodError) return res.status(400).json({ error: e.errors });
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Download a document — streams base64 back as the actual file
+  app.get("/api/documents/:id/download", (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const doc = storage.getDocument(id);
+      if (!doc) return res.status(404).json({ error: "Document not found" });
+
+      const buffer = Buffer.from(doc.data, "base64");
+      res.setHeader("Content-Type", doc.mimeType);
+      res.setHeader("Content-Disposition", `attachment; filename="${doc.filename}"`);
+      res.setHeader("Content-Length", buffer.length);
+      res.send(buffer);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.delete("/api/documents/:id", (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      storage.deleteDocument(id);
       res.status(204).send();
     } catch (e: any) {
       res.status(500).json({ error: e.message });

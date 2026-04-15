@@ -5,12 +5,15 @@ import {
   contacts,
   interactions,
   payments,
+  documents,
   type Contact,
   type InsertContact,
   type Interaction,
   type InsertInteraction,
   type Payment,
   type InsertPayment,
+  type Document,
+  type InsertDocument,
 } from "@shared/schema";
 
 const sqlite = new Database("crm.db");
@@ -53,6 +56,18 @@ sqlite.exec(`
     paid_at TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    contact_id INTEGER NOT NULL,
+    type TEXT NOT NULL DEFAULT 'other',
+    filename TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    data TEXT NOT NULL,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 export interface IStorage {
@@ -73,6 +88,12 @@ export interface IStorage {
   getPaymentsByContact(contactId: number): Payment[];
   createPayment(data: InsertPayment): Payment;
   deletePayment(id: number): void;
+
+  // Documents
+  getDocumentsByContact(contactId: number): Omit<Document, 'data'>[];
+  getDocument(id: number): Document | undefined;
+  createDocument(data: InsertDocument): Omit<Document, 'data'>;
+  deleteDocument(id: number): void;
 
   // Dashboard stats
   getDashboardStats(): {
@@ -105,6 +126,7 @@ export class Storage implements IStorage {
   deleteContact(id: number): void {
     db.delete(interactions).where(eq(interactions.contactId, id)).run();
     db.delete(payments).where(eq(payments.contactId, id)).run();
+    db.delete(documents).where(eq(documents.contactId, id)).run();
     db.delete(contacts).where(eq(contacts.id, id)).run();
   }
 
@@ -179,6 +201,36 @@ export class Storage implements IStorage {
       const totalPaid = allPayments.reduce((sum, p) => sum + p.amount, 0);
       this.updateContact(payment.contactId, { totalPaid });
     }
+  }
+
+  // --- Documents ---
+  getDocumentsByContact(contactId: number): Omit<Document, 'data'>[] {
+    // Return metadata only (no base64 data) for listing
+    const rows = db
+      .select()
+      .from(documents)
+      .where(eq(documents.contactId, contactId))
+      .orderBy(desc(documents.createdAt))
+      .all();
+    return rows.map(({ data: _data, ...meta }) => meta);
+  }
+
+  getDocument(id: number): Document | undefined {
+    return db.select().from(documents).where(eq(documents.id, id)).get();
+  }
+
+  createDocument(data: InsertDocument): Omit<Document, 'data'> {
+    const doc = db
+      .insert(documents)
+      .values({ ...data, createdAt: new Date().toISOString() })
+      .returning()
+      .get();
+    const { data: _data, ...meta } = doc;
+    return meta;
+  }
+
+  deleteDocument(id: number): void {
+    db.delete(documents).where(eq(documents.id, id)).run();
   }
 
   // --- Dashboard ---

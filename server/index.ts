@@ -14,6 +14,7 @@ declare module "http" {
 
 app.use(
   express.json({
+    limit: "15mb", // allow up to 10MB files (base64 inflates ~33%)
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
